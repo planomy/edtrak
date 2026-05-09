@@ -9,6 +9,8 @@ const pkg = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'))
 
 // https://vite.dev/config/
 export default defineConfig({
+  // GitHub Pages project URL: https://<user>.github.io/<repo>/
+  base: process.env.GITHUB_PAGES === 'true' ? '/edtrak/' : '/',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
