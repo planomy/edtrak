@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:5173": "vite --port 5173",
     "build": "vite build",
+    "build:pages": "GITHUB_PAGES=true vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },

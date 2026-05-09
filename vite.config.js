@@ -7,10 +7,15 @@ import react from '@vitejs/plugin-react'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'))
 
+const forGitHubPages = process.env.GITHUB_PAGES === 'true'
+
 // https://vite.dev/config/
 export default defineConfig({
-  // GitHub Pages project URL: https://<user>.github.io/<repo>/
-  base: process.env.GITHUB_PAGES === 'true' ? '/edtrak/' : '/',
+  // Pages: https://planomy.github.io/edtrak/ — run `npm run build:pages`, commit `docs/`, Pages source = main /docs
+  base: forGitHubPages ? '/edtrak/' : '/',
+  build: forGitHubPages
+    ? { outDir: 'docs', emptyOutDir: true }
+    : {},
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
