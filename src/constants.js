@@ -1,4 +1,13 @@
+/** Injected at build time from `package.json` (see `vite.config.js`). */
+export const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.0";
+
+export const APP_AUTHOR = "Nic Comino";
+
 export const STORAGE_KEY = "edtrak-v1";
+/** ISO timestamp of last successful localStorage write (for reconciling with IndexedDB). */
+export const STORAGE_META_KEY = "edtrak-v1-saved-at";
+/** Last time we showed the weekly backup reminder (ms). Downloading a backup updates this too. */
+export const BACKUP_REMINDER_KEY = "edtrak-v1-backup-reminder-at";
 
 export const todayKey = () => new Date().toISOString().slice(0, 10);
 
@@ -89,6 +98,134 @@ export const defaultWeeklyPlan = {
 };
 
 export const timetableRows = ["Block 1", "Block 2", "Block 3", "Block 4"];
+
+/** Matches `Date#getDay()` indices for merging with `defaultWeeklyPlan` keys. */
+export const WEEKDAY_PLAN_KEYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** yyyy-mm-dd → "Wednesday" (local calendar day; midday avoids TZ edge cases). */
+export function weekdayKeyFromDateKey(dateKey) {
+  const d = new Date(`${dateKey}T12:00:00`);
+  return WEEKDAY_PLAN_KEYS[d.getDay()];
+}
+
+/** Best-effort curriculum category from a timetable cell label (Today cards / evidence subject). */
+export function inferCategoryFromWeeklyCell(label) {
+  const s = String(label || "").toLowerCase().trim();
+  if (!s) return "Learning block";
+  if (/\b(english|literacy|phonics|reading|writing|spelling|handwriting)\b/.test(s)) return "English";
+  if (/\b(math|maths|numeracy)\b/.test(s)) return "Mathematics";
+  if (/\b(science|nature|chemistry|physics|biology)\b/.test(s)) return "Science";
+  if (/\b(hass|history|geography|civics)\b/.test(s)) return "HASS";
+  if (/\b(art|arts|music|drama|dance)\b/.test(s)) return "Arts";
+  if (/\b(technolog|digital|design|coding)\b/.test(s)) return "Technologies";
+  if (/\b(hpe|phys ed|\bpe\b|movement|sport|athletic)\b/.test(s)) return "HPE";
+  if (/\bjapanese\b/.test(s)) return "Japanese";
+  if (/\b(wellbeing|well-being|regulation|social.?emotional)\b/.test(s)) return "Wellbeing";
+  if (/\b(evidence|photo|work sample)\b/.test(s)) return "Evidence";
+  if (/\b(project|outdoor|practical|inquiry)\b/.test(s)) return "Project";
+  if (/\btutor\b/.test(s)) return "English";
+  return "Project";
+}
+
+function normalizeFreshTodayTask(task) {
+  return {
+    ...task,
+    activity: task.activity ?? "",
+    note: task.note ?? "",
+    how: task.how ?? "Smooth",
+    done: task.done !== undefined ? Boolean(task.done) : true,
+    evidence: Boolean(task.evidence),
+    hidden: Boolean(task.hidden),
+  };
+}
+
+/** Persists shape used when hydrating Today from saved storage. */
+export function normalizeSavedTodayTasks(tasks) {
+  if (!Array.isArray(tasks)) return [];
+  return tasks.map((task) => ({
+    ...task,
+    activity: task.activity || "",
+    done: Boolean(task.done),
+    how: task.how || "Smooth",
+    evidence: Boolean(task.evidence),
+    hidden: Boolean(task.hidden),
+  }));
+}
+
+/**
+ * Full day (not gentle): blocks 1–4 come from today’s weekday column in `weeklyPlan`.
+ * Further cards use Full-day defaults from Today templates (indices 4+), e.g. optional evidence.
+ */
+export function buildFullDayTasksFromWeeklyPlan(data) {
+  const dateKey = todayKey();
+  const templatesFull = Array.isArray(data.todayTemplates?.full) ? data.todayTemplates.full : defaultTodayTemplates.full;
+  const plan = { ...defaultWeeklyPlan, ...(data.weeklyPlan || {}) };
+  const wd = weekdayKeyFromDateKey(dateKey);
+  const rawRow = plan[wd];
+  const row = Array.isArray(rawRow) ? [...rawRow] : [];
+  while (row.length < 4) row.push("");
+
+  const front = row.slice(0, 4).map((cell, i) => {
+    const trimmed = String(cell || "").trim();
+    const base = templatesFull[i] || defaultTodayTasks[i];
+    if (!trimmed) {
+      return normalizeFreshTodayTask({
+        ...base,
+        id: base.id || `slot-${i}`,
+      });
+    }
+    return normalizeFreshTodayTask({
+      ...base,
+      id: `week-block-${i}`,
+      title: trimmed,
+      category: inferCategoryFromWeeklyCell(trimmed),
+      activity: base.activity || "Work from your weekly timetable.",
+      note: base.note ?? "",
+    });
+  });
+
+  const tail = templatesFull.slice(4).map((t, i) =>
+    normalizeFreshTodayTask({
+      ...t,
+      id: t.id || `tail-${i}-${String(t.title || "").slice(0, 24)}`,
+      activity: t.activity ?? "",
+    }),
+  );
+
+  return [...front, ...tail];
+}
+
+export function buildGentleDayTasksFromTemplates(data) {
+  const gentle = Array.isArray(data.todayTemplates?.gentle) ? data.todayTemplates.gentle : defaultTodayTemplates.gentle;
+  return gentle.map((task) =>
+    normalizeFreshTodayTask({
+      ...task,
+      activity: task.activity ?? "",
+    }),
+  );
+}
+
+/**
+ * Keeps saved task rows (done, notes, etc.) but refreshes heading labels from the latest Full/Gentle templates + week merge.
+ * Drops extra saved rows when switching to a shorter mode (e.g. Full day 7 cards → Gentle 6) so full-only cards do not linger.
+ */
+export function mergeTodayTitlesFromTemplates(savedTasks, data, rough) {
+  const fresh = rough ? buildGentleDayTasksFromTemplates(data) : buildFullDayTasksFromWeeklyPlan(data);
+  if (!Array.isArray(savedTasks) || savedTasks.length === 0) return fresh;
+  const trimmed = savedTasks.slice(0, fresh.length);
+  const out = trimmed.map((t, i) => {
+    const f = fresh[i];
+    return {
+      ...t,
+      title: f.title,
+      category: f.category,
+    };
+  });
+  if (out.length < fresh.length) {
+    return [...out, ...fresh.slice(out.length).map((t) => normalizeFreshTodayTask({ ...t }))];
+  }
+  return out;
+}
 
 export const defaultBlockData = {
   A: {
@@ -231,7 +368,7 @@ export const defaultYearGoals = {
 export const statuses = ["Not started", "Started", "Practising", "Secure enough for now"];
 export const howOptions = ["Smooth", "Needed support", "Too much today", "Great engagement"];
 
-function getInitialState() {
+export function getInitialState() {
   return {
     todayRecords: {},
     evidence: [],
@@ -249,46 +386,68 @@ function getInitialState() {
   };
 }
 
-export function loadState() {
+/** Merge raw parsed JSON with defaults (used after load / import / IDB). */
+export function normalizeParsedState(parsed) {
   const fallback = getInitialState();
+  if (!parsed || typeof parsed !== "object") return { ...fallback };
 
-  try {
-    let saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      const legacy = localStorage.getItem("fox-learning-tracker-v2");
-      if (legacy) {
-        saved = legacy;
-        localStorage.setItem(STORAGE_KEY, legacy);
-        localStorage.removeItem("fox-learning-tracker-v2");
-      }
+  const savedTemplates = parsed.todayTemplates || {};
+  const savedProgressOptions = parsed.progressOptions || {};
+
+  return {
+    ...fallback,
+    ...parsed,
+    todayRecords: parsed.todayRecords || {},
+    evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
+    weeklyReflections: Array.isArray(parsed.weeklyReflections) ? parsed.weeklyReflections : [],
+    blockStatus: parsed.blockStatus || {},
+    blockNotes: parsed.blockNotes || {},
+    profile: { ...defaultProfile, ...(parsed.profile || {}) },
+    weeklyPlan: { ...defaultWeeklyPlan, ...(parsed.weeklyPlan || {}) },
+    todayTemplates: {
+      full: Array.isArray(savedTemplates.full) ? savedTemplates.full : defaultTodayTemplates.full,
+      gentle: Array.isArray(savedTemplates.gentle) ? savedTemplates.gentle : defaultTodayTemplates.gentle,
+    },
+    blockData: parsed.blockData || defaultBlockData,
+    yearGoals: { ...defaultYearGoals, ...(parsed.yearGoals || {}) },
+    planYear: parsed.planYear || new Date().getFullYear().toString(),
+    archives: Array.isArray(parsed.archives) ? parsed.archives : [],
+    progressOptions: { ...defaultProgressOptions, ...savedProgressOptions },
+  };
+}
+
+export function readLocalStorageRaw() {
+  let saved = localStorage.getItem(STORAGE_KEY);
+  if (!saved) {
+    const legacy = localStorage.getItem("fox-learning-tracker-v2");
+    if (legacy) {
+      saved = legacy;
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem("fox-learning-tracker-v2");
     }
-    if (!saved) return fallback;
+  }
+  return saved;
+}
 
-    const parsed = JSON.parse(saved) || {};
-    const savedTemplates = parsed.todayTemplates || {};
-    const savedProgressOptions = parsed.progressOptions || {};
-
-    return {
-      ...fallback,
-      ...parsed,
-      todayRecords: parsed.todayRecords || {},
-      evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
-      weeklyReflections: Array.isArray(parsed.weeklyReflections) ? parsed.weeklyReflections : [],
-      blockStatus: parsed.blockStatus || {},
-      blockNotes: parsed.blockNotes || {},
-      profile: { ...defaultProfile, ...(parsed.profile || {}) },
-      weeklyPlan: { ...defaultWeeklyPlan, ...(parsed.weeklyPlan || {}) },
-      todayTemplates: {
-        full: Array.isArray(savedTemplates.full) ? savedTemplates.full : defaultTodayTemplates.full,
-        gentle: Array.isArray(savedTemplates.gentle) ? savedTemplates.gentle : defaultTodayTemplates.gentle,
-      },
-      blockData: parsed.blockData || defaultBlockData,
-      yearGoals: { ...defaultYearGoals, ...(parsed.yearGoals || {}) },
-      planYear: parsed.planYear || new Date().getFullYear().toString(),
-      archives: Array.isArray(parsed.archives) ? parsed.archives : [],
-      progressOptions: { ...defaultProgressOptions, ...savedProgressOptions },
-    };
+export function readLocalStorageSavedAt() {
+  try {
+    const meta = localStorage.getItem(STORAGE_META_KEY);
+    if (!meta) return 0;
+    const { savedAt } = JSON.parse(meta);
+    return typeof savedAt === "number" && Number.isFinite(savedAt) ? savedAt : 0;
   } catch {
-    return fallback;
+    return 0;
+  }
+}
+
+/** Synchronous read for tests or SSR-less fallback (prefer hydrateAll in the app). */
+export function loadState() {
+  try {
+    const saved = readLocalStorageRaw();
+    if (!saved) return getInitialState();
+    const parsed = JSON.parse(saved) || {};
+    return normalizeParsedState(parsed);
+  } catch {
+    return getInitialState();
   }
 }
