@@ -773,7 +773,6 @@ function PlanSetupTab({ data, setData, showToast }) {
   const [block, setBlock] = useState(Object.keys(data.blockData || defaultBlockData)[0] || "A");
   const activeBlockData = data.blockData || defaultBlockData;
   const goals = { ...defaultYearGoals, ...(data.yearGoals || {}) };
-  const options = data.progressOptions || defaultProgressOptions;
   const blockSubjects = activeBlockData[block] || {};
 
   function updatePlanYear(value) {
@@ -788,12 +787,6 @@ function PlanSetupTab({ data, setData, showToast }) {
     const nextBlockData = JSON.parse(JSON.stringify(activeBlockData));
     nextBlockData[block][subject][index] = value;
     setData({ ...data, blockData: nextBlockData });
-  }
-
-  function updateProgressOption(group, index, value) {
-    const nextOptions = JSON.parse(JSON.stringify(options));
-    nextOptions[group][index] = value;
-    setData({ ...data, progressOptions: nextOptions });
   }
 
   function startNewYear() {

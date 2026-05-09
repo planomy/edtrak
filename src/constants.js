@@ -253,7 +253,15 @@ export function loadState() {
   const fallback = getInitialState();
 
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    let saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) {
+      const legacy = localStorage.getItem("fox-learning-tracker-v2");
+      if (legacy) {
+        saved = legacy;
+        localStorage.setItem(STORAGE_KEY, legacy);
+        localStorage.removeItem("fox-learning-tracker-v2");
+      }
+    }
     if (!saved) return fallback;
 
     const parsed = JSON.parse(saved) || {};
