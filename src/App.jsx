@@ -1574,8 +1574,13 @@ const styles = `
     min-height: 100vh;
     background: #fff7ed;
     color: #1c1917;
+    color-scheme: light;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     padding-bottom: 18px;
+  }
+  .app h1,
+  .app h2 {
+    color: #1c1917;
   }
   .header {
     position: sticky;
@@ -1905,6 +1910,7 @@ const styles = `
     border: 1px solid #fed7aa;
     border-radius: 16px;
     background: #fffaf5;
+    color: #1c1917;
     padding: 8px 10px;
     font: inherit;
   }
